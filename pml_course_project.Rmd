@@ -1,0 +1,145 @@
+---
+title: 'Quantify Exercise Activity: Correctly vs. Incorrectly'
+author: "Tejash Panchal"
+date: "December 21, 2015"
+output: 
+  html_document: 
+    keep_md: yes
+---
+## Overview:
+
+With availability of mobile devices such as Jawbone Up, Nike FuelBand, and Fitbit, collecting a large amount of personal activity data is possible as well as relatively inexpensive.  Using these types of movement devices, a group of enthusuasts who takes measurements about themselves regularly to improve their health and to find pattern in their behavior.  People regularly quantify how much of a perticularly activity they do, but they rarely quantify how well they do it.  The goal of this project is to predict the manner in which they did the exercise. The "classe" variable in the training set will be used to predict with.
+
+## Getting, loading, and preprocessing the data:
+In this section of analysis, I will download the training and testing file from source,  perform initial processing, extract column names from both sets of data, and find differences.
+
+```{r}
+# raw file name assign
+raw_training_file <- "pml-training.csv"
+raw_testing_file <- "pml-testing.csv"
+
+# Download training file if it doesn't exist
+if (!file.exists(raw_training_file)){
+        # Download training file
+        download.file(url="d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+              destfile=raw_training_file, method="curl")
+}
+
+# Download testing file if it doesn't exist
+if (!file.exists(raw_testing_file)){
+        # Download testing file
+        download.file(url="d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",
+              destfile=raw_testing_file, method="curl")
+}
+
+training <- read.csv(raw_training_file, sep = ",", na.strings = c('NA','#DIV/0!',''))
+print(dim(training))
+train_colnames <- colnames(training)
+
+testing <- read.csv(raw_testing_file, sep = ",", na.strings = c('NA','#DIV/0!',''))
+print(dim(testing))
+test_colnames <- colnames(testing)
+
+# Validate if training and test data are identical.
+if ((length(train_colnames) - length(test_colnames)) == 0){
+        print("Same number of columns.")
+        # Now let's find if train_colnames are same as test_colnames
+        print("Different columns between training and testing data.")
+        print(setdiff(train_colnames, test_colnames))
+        # Now let's find the otherway if test_colnames are same as train_colnames
+        print("Different columns between testing and training data.")
+        print(setdiff(test_colnames, train_colnames))
+}
+
+```
+
+## Extracting the Features:
+In this section of data processing, I will remove the data sets that are incomplete and keep only complete data sets for my analysis.  I will also remove first few columns of data which is administrative data and not the features.
+
+```{r}
+# Use only complete columns thus remove any columns with NA in training and testing data set
+training <- training[,complete.cases(t(training))]
+testing <- testing[,complete.cases(t(testing))]
+
+# Also, first 7 columns are not the feature data set so remove them
+training <- training[,8:length(colnames(training))]
+testing <- testing[,8:length(colnames(testing))]
+
+print(colnames(training))
+print(colnames(testing))
+
+```
+
+## Data Partitioning:
+Now let's split the training data into two sections to create training model. I will allocate 75% of the data to training the model and evaluate the model with 25% of remaining data.
+
+```{r}
+library(caret)
+# set seed
+set.seed(32343)
+
+# Create data partition
+inTrain <- createDataPartition(y=training$classe, time=1, p=0.75, list=FALSE)
+trainData <- training[inTrain,]
+validationData <- training[-inTrain,]
+
+print(rbind("original dataset" = dim(training),"training set" = dim(trainData), "validation set" = dim(validationData)))
+```
+
+## Model with Random Forest Algorithm and cross validation:
+Now I will apply Random Forest Algorithm to remaining 25% of data from training set to validate my model.  I will create confusion matrix to examine the overall statistics of my model.
+
+```{r}
+library(randomForest)
+modelFit_RF <- randomForest(classe ~ ., data=trainData, method="rf")
+print(modelFit_RF)
+
+# Plot Random Forest Model
+plot(modelFit_RF)
+varImpPlot(modelFit_RF)
+
+pred_RF <- predict(modelFit_RF,newdata=validationData)
+# logic value for whether or not the rf algorithm predicted correctly
+validationData$predRight <- pred_RF==validationData$classe
+# tabulate results
+print(table(pred_RF, validationData$classe))
+
+# Confusion Matrix
+cm_RF <- confusionMatrix(pred_RF,validationData$classe)
+print(cm_RF)
+
+# Plot Confusion Matrix
+plot(cm_RF$table, col = cm_RF$byClass, main = paste("Random Forest Confusion Matrix: Accuracy =", round(cm_RF$overall['Accuracy'], 4)))
+
+```
+
+In random forest model, there is no need for cross-validation or a seperate test set to get an unbiased estimate of the test set error since it is estimated internally.
+
+## Predict Activity Quality:
+Now apply the model to testing data to predict activity quality.
+
+```{r}
+# Now apply the RF model to testing data and evaluate
+test_result_RF <- predict(modelFit_RF, testing, type = "class")
+# test_result_RF <- predict(modelFit_RF, testing)
+print(test_result_RF)
+summary(test_result_RF)
+plot(test_result_RF)
+```
+
+## Generate answer files for assignment submission:
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(test_result_RF)
+```
+
+## Conclusion:
+Original Data source "http://groupware.les.inf.puc-rio.br/har", states that "Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes."  When I applied the model I created to testing data, it predicted that only **`r summary(test_result_RF)[[1]]`** out of **`r length(test_result_RF)`** subjects falls under Class A.  In conclusion, my model predicts that roughly 2/3 of people performs exercise incorrectly.
+
